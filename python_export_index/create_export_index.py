@@ -1,7 +1,6 @@
 import importlib
 import re
 import sys
-from ast import PyCF_TYPE_COMMENTS
 from pathlib import Path
 
 from . import my_name
