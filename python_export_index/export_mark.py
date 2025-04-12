@@ -24,3 +24,7 @@ def export_primitive(name):
 
 def _register(file, symbol_name):
     ctx.exports.append({"file": file, "name": symbol_name})
+
+def disable_import():
+    assert ctx.active, "export_primitive() can only be used when dynamic importer running"
+    

@@ -53,7 +53,7 @@ from _generated import *
 # 这里可以放一些其他的代码
 ```
 
-### 如何导出
+## 如何导出
 
 ```python
 ## 通过装饰器来声明导出
@@ -79,7 +79,7 @@ value = 42
 __all__ = ["value", "another_way"]
 ```
 
-### 防止文件被从外部导入
+## 防止文件被从外部导入
 由于不是所有文件都在`/public`目录中，其他文件可以用这种方法防止被导入，实际上只需要在最外层`__init__.py`中使用即可
 
 例如`/my_py_lib/internal/__init__.py`中使用后，整个`/my_py_lib/internal`目录都不能被导入
