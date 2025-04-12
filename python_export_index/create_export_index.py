@@ -2,6 +2,7 @@ import importlib
 import re
 import sys
 from pathlib import Path
+from typing import Callable
 
 from . import my_name
 from ._ctx import ctx
@@ -12,7 +13,7 @@ GEN_WARNING = (
 )
 
 
-def write_file_if_change(f: Path, content: str):
+def write_file_if_change(f: Path, content: str, dprint: Callable):
     """
     写入文件，如果内容没有变化则不写入
     :param file: 文件路径
@@ -21,42 +22,72 @@ def write_file_if_change(f: Path, content: str):
     if f.exists():
         current: str = f.read_text()
         if current == content:
-            # print("[loader] 文件没有改变:", f.as_posix())
+            dprint("[loader] 文件没有改变:", f.as_posix())
             return
         if current and GEN_MARK not in current:
             raise ValueError(
                 "将会覆盖非自动生成的文件，请检查是否正确，如果确实需要，则可删除该文件"
             )
 
-    print("[loader] 更新index文件:", f.as_posix(), file=sys.stderr)
+    dprint("[loader] 更新index文件:", f.as_posix())
     f.write_text(content)
 
 
-def create_exports(base: Path, dir: str, index: str = "__init__.py"):
+def debug_tools(debug: bool):
+    if debug:
+
+        def dprint(
+            *args,
+        ):
+            print(*args, file=sys.stderr)
+
+        def dappend(lines: list[str], line: str):
+            lines.append(line)
+
+        return (dprint, dappend)
+    else:
+
+        def noop(*args, **kwargs):
+            pass
+
+        return (noop, noop)
+
+
+def create_exports(base: Path, dir: str, index: str = "__init__.py", debug=False):
     output_file = base.joinpath(index)
     scan_dir = base.joinpath(dir)
     all_symbols = {}
     empty_files = []
 
+    (dprint, dappend) = debug_tools(debug)
+
+    topic_file = output_file
+    is_init = output_file.name == "__init__.py"
+    if is_init and output_file.exists():
+        topic_file = output_file.with_name(f"{output_file.stem}.bak")
+        topic_file.unlink(True)
+        dprint("move __init__.py to backup")
+        output_file.rename(topic_file)
+
     for path in scan_dir.rglob("*.py"):
         if not path.is_file() or path.name.startswith("_") or path.name.startswith("."):
             continue
 
-        # print("==== path", path)
+        dprint("==== process file:", path)
 
-        out_mdl_name = (
+        mdl_name = (
             path.relative_to(base).as_posix().replace("/", ".").replace("\\", ".")
         )
-        out_mdl_name = f".{out_mdl_name[:-3]}"
+        mdl_name = f".{mdl_name[:-3]}"
 
-        # print(f" import {name} [as {base.stem}]")
+        dprint(f" import {mdl_name} [as {base.stem}]")
         ctx.active = True
         ctx.exports.clear()
 
-        mdl = importlib.import_module(out_mdl_name, base.stem)
+        mdl = importlib.import_module(mdl_name, base.stem)
 
         all = getattr(mdl, "__all__", None)
-        # print(f"  __all__ = {all}")
+        dprint(f"  __all__ = {all}")
         if all is None:
             patch_file(path)
             all = []
@@ -65,57 +96,57 @@ def create_exports(base: Path, dir: str, index: str = "__init__.py"):
                 all_symbols[i] = path
 
         for symbol in ctx.exports:
-            out_mdl_name = symbol["name"]
+            sym_name = symbol["name"]
             file = Path(symbol["file"])
-            if out_mdl_name in all_symbols and all_symbols[out_mdl_name] != file:
-                print(f"Found duplicate symbol '{out_mdl_name}' in", file=sys.stderr)
-                print(f"    * previous: {all_symbols[out_mdl_name]}", file=sys.stderr)
+            if sym_name in all_symbols and all_symbols[sym_name] != file:
+                print(f"Found duplicate symbol '{sym_name}' in", file=sys.stderr)
+                print(f"    * previous: {all_symbols[sym_name]}", file=sys.stderr)
                 print(f"    * current:  {file}", file=sys.stderr)
                 raise TypeError("duplicate symbol")
 
-            all_symbols[out_mdl_name] = file
-            # print(f"  * {name}")
+            all_symbols[sym_name] = file
+            dprint(f"  * {sym_name}")
 
         if not len(ctx.exports) and not len(all):
             empty_files.append(path)
-            # print(f"  * empty file: {path.relative_to(base)}")
+            dprint(f"  * empty file: {path.relative_to(base)}")
 
         ctx.active = False
         ctx.exports.clear()
 
     # pprint.pprint(all_symbols)
 
-    import_stmts = ""
-    for out_mdl_name, path in all_symbols.items():
+    import_stmts = []
+    for name, path in all_symbols.items():
         p = create_from_clause(output_file, path)
-        import_stmts += f"  from {p} import {out_mdl_name}\n"
+        import_stmts.append(f"from {p} import {name}")
 
     for path in empty_files:
         p = create_from_clause(output_file, path)
-        import_stmts += f"  from {p} import __all__ as _a\n  del _a\n"
-
-    # pycode += f"  print('all files loaded!!')\n"
+        import_stmts.append(f"from {p} import __all__ as _a")
+        import_stmts.append(f"del _a")
+    dappend(import_stmts, f"print('all files loaded!!')")
 
     pycode = [GEN_WARNING]
-    # pycode.append("import traceback")
-    # pycode.append('print(f"IM Imported with {__name__}")')
-    # pycode.append("for line in traceback.format_stack():")
-    # pycode.append("""  if line.startswith('  File "/'): print(line.rstrip())""")
-    # pycode.append("""  else: break""")
+    dappend(pycode, "import traceback")
+    dappend(pycode, 'print(f"[index] I\'m imported with name \\"{__name__}\\"")')
+    dappend(pycode, "for line in traceback.format_stack():")
+    dappend(pycode, """  if line.startswith('  File "/'): print(line.rstrip())""")
+    dappend(pycode, """  else: break""")
 
-    if output_file.name == "__init__.py":
-        import_stmts = wrap_try_catch(import_stmts)
-
-    pycode.append(import_stmts)
+    pycode.extend(import_stmts)
     pycode.append("__all__ = [")
     for i in all_symbols.keys():
         pycode.append(f"  '{i}',")
     pycode.append("]")
 
-    write_file_if_change(output_file, "\n".join(pycode))
+    write_file_if_change(topic_file, "\n".join(pycode), dprint=dprint)
+    if is_init:
+        topic_file.rename(output_file)
 
+    # 重新加载模块
     out_mdl_name = create_from_clause(base.joinpath("fake.py"), output_file)
-    # print("reload module:", name)
+    dprint("reload module:", out_mdl_name)
     if out_mdl_name.endswith(".__init__"):
         out_mdl_name = out_mdl_name[:-9]
         if out_mdl_name == "":
@@ -133,19 +164,19 @@ def create_from_clause(source: Path, imported: Path):
     )
 
 
-def wrap_try_catch(content: str):
-    pycode = "try:\n"
-    pycode += re.sub(r"^", "  ", content, flags=re.MULTILINE)
-    pycode += "\n"
-    pycode += "except ImportError as e:\n"
-    # pycode += f"  print('error during try load:',e)\n"
-    pycode += f"  try:\n"
-    pycode += f"    from {my_name}._ctx import ctx\n"
-    pycode += f"    if not ctx.active: raise e\n"
-    pycode += f"  except ImportError as ee:\n"
-    # pycode += f"    print('error during load this library:',ee)\n"
-    pycode += f"    pass\n"
-    return pycode
+def wrap_try_catch(content: list[str], dappend: Callable):
+    lines = ["try:"]
+    for line in content:
+        lines.append(re.sub(r"^", "  ", line, flags=re.MULTILINE))
+    lines.append("except ImportError as e:")
+    dappend(lines, f"  print('error during try load:',e)")
+    lines.append(f"  try:")
+    lines.append(f"    from {my_name}._ctx import ctx")
+    lines.append(f"    if not ctx.active: raise e")
+    lines.append(f"  except ImportError as ee:")
+    dappend(lines, f"    print('error during load this library:',ee)")
+    lines.append(f"    pass")
+    return lines
 
 
 def patch_file(path: Path):
