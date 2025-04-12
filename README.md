@@ -8,12 +8,12 @@
 
 # 使用方法
 
-#### 外部模式：通过一个脚本来生成索引文件
+## 外部模式：通过一个脚本来生成索引文件
 * 优点：运行时不需要这个包
 * 缺点：必须注意不能有额外效应，因为生成过程需要import所有python脚本    
     不能禁止import子文件夹
 
-**不可以使用export、export_primitive、disable_import**
+**外部模式不可以使用export、export_primitive、disable_import**
 
 示例：
 
@@ -30,7 +30,7 @@ from pathlib import Path
 create_exports(Path(__file__).parent.joinpath("my_py_lib"), "public/", "__init__.py")
 ```
 
-### 运行模式: 侵入实际要用的代码中
+## 运行模式: 侵入实际要用的代码中
 * 优点：不需要额外脚本
 * 缺点：导入过程会多运行一些不必要的代码，运行时依赖这个包
 
