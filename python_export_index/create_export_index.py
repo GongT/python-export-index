@@ -64,10 +64,12 @@ def create_exports(base: Path, dir: str, index: str = "__init__.py", debug=False
     topic_file = output_file
     is_init = output_file.name == "__init__.py"
     if is_init and output_file.exists():
-        topic_file = output_file.with_name(f"{output_file.stem}.bak")
+        topic_file = output_file.with_name(name=f"{output_file.stem}.bak")
         topic_file.unlink(True)
         dprint("move __init__.py to backup")
         output_file.rename(topic_file)
+        output_file = output_file.with_name(name=f"{output_file.stem}.py")
+        output_file.touch()
 
     for path in scan_dir.rglob("*.py"):
         if not path.is_file() or path.name.startswith("_") or path.name.startswith("."):
@@ -131,8 +133,8 @@ def create_exports(base: Path, dir: str, index: str = "__init__.py", debug=False
     dappend(pycode, "import traceback")
     dappend(pycode, 'print(f"[index] I\'m imported with name \\"{__name__}\\"")')
     dappend(pycode, "for line in traceback.format_stack():")
-    dappend(pycode, """  if line.startswith('  File "/'): print(line.rstrip())""")
-    dappend(pycode, """  else: break""")
+    dappend(pycode, "  if line.startswith('  File \"/') and 'site-packages' not in line and '/importlib/' not in line: print(line.rstrip())")
+    dappend(pycode, "  else: continue")
 
     pycode.extend(import_stmts)
     pycode.append("__all__ = [")
